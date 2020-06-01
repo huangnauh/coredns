@@ -156,6 +156,22 @@ func parseBlock(c *caddyfile.Dispenser, f *Forward) error {
 			return fmt.Errorf("max_fails can't be negative: %d", n)
 		}
 		f.maxfails = uint32(n)
+	case "retry_failed":
+		if !c.NextArg() {
+			return c.ArgErr()
+		}
+		n, err := strconv.Atoi(c.Val())
+		if err != nil {
+			return err
+		}
+		if n < 0 {
+			return fmt.Errorf("retry_failed can't be negative: %d", n)
+		}
+
+		if n > len(f.proxies) {
+			return fmt.Errorf("retry_failed can't be larger than number of proxies(%d)", len(f.proxies))
+		}
+		f.maxFailedTries = n
 	case "health_check":
 		if !c.NextArg() {
 			return c.ArgErr()

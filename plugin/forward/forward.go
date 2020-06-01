@@ -31,10 +31,11 @@ type Forward struct {
 	from    string
 	ignored []string
 
-	tlsConfig     *tls.Config
-	tlsServerName string
-	maxfails      uint32
-	expire        time.Duration
+	tlsConfig      *tls.Config
+	tlsServerName  string
+	maxfails       uint32
+	maxFailedTries int
+	expire         time.Duration
 
 	opts options // also here for testing
 
@@ -59,6 +60,22 @@ func (f *Forward) Len() int { return len(f.proxies) }
 // Name implements plugin.Handler.
 func (f *Forward) Name() string { return "forward" }
 
+func (f *Forward) retryFailed(state request.Request, proxy *Proxy, msg *dns.Msg) bool {
+	if !state.Match(msg) {
+		log.Errorf("Wrong reply for id: %d, %s %d, upstream: %s",
+			msg.Id, state.QName(), state.QType(), proxy.addr)
+		return true
+	}
+
+	if msg.Rcode == dns.RcodeServerFailure || msg.Rcode == dns.RcodeRefused {
+		log.Errorf("Response failed for id: %d, %s, upstream: %s, err: %s",
+			msg.Id, state.QName(), proxy.addr, dns.RcodeToString[msg.Rcode])
+		return true
+	}
+
+	return false
+}
+
 // ServeDNS implements plugin.Handler.
 func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {
 
@@ -75,6 +92,7 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 	list := f.List()
 	deadline := time.Now().Add(defaultTimeout)
 	start := time.Now()
+	try := 0
 	for time.Now().Before(deadline) {
 		if i >= len(list) {
 			// reached the end of list, reset to begin
@@ -84,6 +102,7 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 
 		proxy := list[i]
 		i++
+		try++
 		if proxy.Down(f.maxfails) {
 			fails++
 			if fails < len(f.proxies) {
@@ -131,6 +150,7 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 		upstreamErr = err
 
 		if err != nil {
+			log.Errorf("Response failed, name %s, upstream %s, err: %s", state.QName(), proxy.addr, err)
 			// Kick off health check to see if *our* upstream is broken.
 			if f.maxfails != 0 {
 				proxy.Healthcheck()
@@ -140,6 +160,10 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 				continue
 			}
 			break
+		}
+
+		if try <= f.maxFailedTries && f.retryFailed(state, proxy, ret) {
+			continue
 		}
 
 		// Check if the reply is correct; if not return FormErr.
