@@ -34,11 +34,12 @@ type Forward struct {
 	from    string
 	ignored []string
 
-	tlsConfig     *tls.Config
-	tlsServerName string
-	maxfails      uint32
-	expire        time.Duration
-	maxConcurrent int64
+	tlsConfig      *tls.Config
+	tlsServerName  string
+	maxfails       uint32
+	expire         time.Duration
+	maxConcurrent  int64
+	maxFailedTries int
 
 	opts options // also here for testing
 
@@ -92,6 +93,7 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 	list := f.List()
 	deadline := time.Now().Add(defaultTimeout)
 	start := time.Now()
+	try := 0
 	for time.Now().Before(deadline) {
 		if i >= len(list) {
 			// reached the end of list, reset to begin
@@ -101,6 +103,7 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 
 		proxy := list[i]
 		i++
+		try++
 		if proxy.Down(f.maxfails) {
 			fails++
 			if fails < len(f.proxies) {
@@ -156,6 +159,10 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 			break
 		}
 
+		if try <= f.maxFailedTries && f.retryFailed(state, proxy, ret) {
+			continue
+		}
+
 		// Check if the reply is correct; if not return FormErr.
 		if !state.Match(ret) {
 			debug.Hexdumpf(ret, "Wrong reply for id: %d, %s %d", ret.Id, state.QName(), state.QType())
@@ -175,6 +182,22 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 	}
 
 	return dns.RcodeServerFailure, ErrNoHealthy
+}
+
+func (f *Forward) retryFailed(state request.Request, proxy *Proxy, msg *dns.Msg) bool {
+	if !state.Match(msg) {
+		log.Errorf("Wrong reply for id: %d, %s %d, upstream: %s",
+			msg.Id, state.QName(), state.QType(), proxy.addr)
+		return true
+	}
+
+	if msg.Rcode == dns.RcodeServerFailure || msg.Rcode == dns.RcodeRefused {
+		log.Errorf("Response failed for id: %d, %s, upstream: %s, err: %s",
+			msg.Id, state.QName(), proxy.addr, dns.RcodeToString[msg.Rcode])
+		return true
+	}
+
+	return false
 }
 
 func (f *Forward) match(state request.Request) bool {
@@ -205,7 +228,7 @@ func (f *Forward) ForceTCP() bool { return f.opts.forceTCP }
 func (f *Forward) PreferUDP() bool { return f.opts.preferUDP }
 
 // List returns a set of proxies to be used for this client depending on the policy in f.
-func (f *Forward) List() []*Proxy {return f.p.List(f.proxies)}
+func (f *Forward) List() []*Proxy { return f.p.List(f.proxies) }
 
 var (
 	// ErrNoHealthy means no healthy proxies left.

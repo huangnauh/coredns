@@ -2,6 +2,7 @@ package forward
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/coredns/coredns/plugin/pkg/dnstest"
@@ -119,5 +120,58 @@ func TestProtocolSelection(t *testing.T) {
 		if proto != exp {
 			t.Errorf("Unexpected protocol in case %d, expected %q, actual %q", i, exp, proto)
 		}
+	}
+}
+
+func TestProxyRetryFailed(t *testing.T) {
+	test := []struct{ setRcode, getRcode int }{
+		{
+			setRcode: dns.RcodeFormatError,
+			getRcode: dns.RcodeFormatError,
+		},
+		{
+			setRcode: dns.RcodeServerFailure,
+			getRcode: dns.RcodeSuccess,
+		},
+		{
+			setRcode: dns.RcodeSuccess,
+			getRcode: dns.RcodeSuccess,
+		},
+	}
+	for _, tc := range test {
+		testProxyRetryFailed(t, tc.setRcode, tc.getRcode)
+	}
+}
+
+func testProxyRetryFailed(t *testing.T, setRcode, getRcode int) {
+	s := dnstest.NewServer(func(w dns.ResponseWriter, r *dns.Msg) {
+		ret := new(dns.Msg)
+		ret.SetRcode(r, setRcode)
+		w.WriteMsg(ret)
+	})
+	defer s.Close()
+
+	c := caddy.NewTestController("dns", fmt.Sprintf(
+		`forward . %s %s {
+					policy sequential
+					retry_failed 2
+				}
+`, s.Addr, "8.8.8.8"))
+	f, err := parseForward(c)
+	if err != nil {
+		t.Errorf("Failed to create forwarder: %s", err)
+	}
+	f.OnStartup()
+	defer f.OnShutdown()
+
+	m := new(dns.Msg)
+	m.SetQuestion("example.org.", dns.TypeA)
+	rec := dnstest.NewRecorder(&test.ResponseWriter{})
+
+	if _, err := f.ServeDNS(context.TODO(), rec, m); err != nil {
+		t.Fatal("Expected to receive reply, but didn't")
+	}
+	if rec.Msg.Rcode != getRcode {
+		t.Errorf("Expected %d, got %d", getRcode, rec.Msg.Rcode)
 	}
 }

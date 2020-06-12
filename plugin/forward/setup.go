@@ -241,7 +241,21 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 		}
 		f.ErrLimitExceeded = errors.New("concurrent queries exceeded maximum " + c.Val())
 		f.maxConcurrent = int64(n)
-
+	case "retry_failed":
+		if !c.NextArg() {
+			return c.ArgErr()
+		}
+		n, err := strconv.Atoi(c.Val())
+		if err != nil {
+			return err
+		}
+		if n < 0 {
+			return fmt.Errorf("retry_failed can't be negative: %d", n)
+		}
+		if n > len(f.proxies) {
+			return fmt.Errorf("retry_failed can't be larger than number of proxies(%d)", len(f.proxies))
+		}
+		f.maxFailedTries = n
 	default:
 		return c.Errf("unknown property '%s'", c.Val())
 	}
