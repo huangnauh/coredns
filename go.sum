@@ -36,6 +36,8 @@ github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDk
 github.com/coredns/alternate v0.0.0-20190925173423-7f0ee2a07ecd h1:LzhF3kOtNvsYe78Ztrr+lrF3333smT9M4ygYRZICrnI=
 github.com/coredns/alternate v0.0.0-20190925173423-7f0ee2a07ecd/go.mod h1:tlcSTGPSMYs8nlz23E7k8FTcuJc0pRrWdApmISb8nyA=
 github.com/coredns/coredns v1.6.1/go.mod h1:5w+g3bRqA+sKV+Fm+ZkhsDnTDc6fmO30JLUMB+XQe4w=
+github.com/coredns/proxy v0.0.0-20191129143419-f0a08b13f568 h1:n3c1hDhcua5FJ0fTXoCYfNY4fijUBoed9d1+SB1HwO4=
+github.com/coredns/proxy v0.0.0-20191129143419-f0a08b13f568/go.mod h1:BXx1AhWPTL4TJqe70SRiT1MT41j8yWJGU6kEInPiDAA=
 github.com/coreos/bbolt v1.3.2 h1:wZwiHHUieZCquLkDL0B8UhzreNWsPHooDAG3q34zk0s=
 github.com/coreos/bbolt v1.3.2/go.mod h1:iRUV2dpdMOn7Bo10OQBFzIJO9kkE559Wcmn+qkEiiKk=
 github.com/coreos/etcd v3.3.13+incompatible h1:8F3hqu9fGYLBifCmRCJsicFqDx/D68Rt3q1JMazcgBQ=

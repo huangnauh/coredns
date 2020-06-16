@@ -6,6 +6,7 @@ require (
 	github.com/aws/aws-sdk-go v1.21.6
 	github.com/caddyserver/caddy v1.0.1
 	github.com/coredns/alternate v0.0.0-20190925173423-7f0ee2a07ecd
+	github.com/coredns/proxy v0.0.0-20191129143419-f0a08b13f568
 	github.com/coreos/etcd v3.3.13+incompatible
 	github.com/dnstap/golang-dnstap v0.0.0-20170829151710-2cf77a2b5e11
 	github.com/farsightsec/golang-framestream v0.0.0-20181102145529-8a0cb8ba8710
