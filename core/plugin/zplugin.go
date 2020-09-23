@@ -44,5 +44,5 @@ import (
 	_ "github.com/coredns/coredns/plugin/tls"
 	_ "github.com/coredns/coredns/plugin/trace"
 	_ "github.com/coredns/coredns/plugin/whoami"
-	_ "github.com/coredns/proxy"
+	_ "github.com/huangnauh/proxy"
 )
