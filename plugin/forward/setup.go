@@ -24,27 +24,30 @@ func init() {
 }
 
 func setup(c *caddy.Controller) error {
-	f, err := parseForward(c)
+	fs, err := parseForward(c)
 	if err != nil {
 		return plugin.Error("forward", err)
 	}
-	if f.Len() > max {
-		return plugin.Error("forward", fmt.Errorf("more than %d TOs configured: %d", max, f.Len()))
+	for i := range fs {
+		f := fs[i]
+		if f.Len() > max {
+			return plugin.Error("forward", fmt.Errorf("more than %d TOs configured: %d", max, f.Len()))
+		}
+
+		dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
+			f.Next = next
+			return f
+		})
+
+		c.OnStartup(func() error {
+			metrics.MustRegister(c, RequestCount, RcodeCount, RequestDuration, HealthcheckFailureCount, SocketGauge)
+			return f.OnStartup()
+		})
+
+		c.OnShutdown(func() error {
+			return f.OnShutdown()
+		})
 	}
-
-	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
-		f.Next = next
-		return f
-	})
-
-	c.OnStartup(func() error {
-		metrics.MustRegister(c, RequestCount, RcodeCount, RequestDuration, HealthcheckFailureCount, SocketGauge)
-		return f.OnStartup()
-	})
-
-	c.OnShutdown(func() error {
-		return f.OnShutdown()
-	})
 
 	return nil
 }
@@ -68,23 +71,19 @@ func (f *Forward) OnShutdown() error {
 // Close is a synonym for OnShutdown().
 func (f *Forward) Close() { f.OnShutdown() }
 
-func parseForward(c *caddy.Controller) (*Forward, error) {
-	var (
-		f   *Forward
-		err error
-		i   int
-	)
+func parseForward(c *caddy.Controller) ([]*Forward, error) {
+	fs := make([]*Forward, 0)
+	i := 0
 	for c.Next() {
-		if i > 0 {
-			return nil, plugin.ErrOnce
-		}
-		i++
-		f, err = ParseForwardStanza(&c.Dispenser)
+		f, err := ParseForwardStanza(&c.Dispenser)
 		if err != nil {
 			return nil, err
 		}
+		f.Index = i
+		fs = append(fs, f)
+		i++
 	}
-	return f, nil
+	return fs, nil
 }
 
 // ParseForwardStanza parses one forward stanza

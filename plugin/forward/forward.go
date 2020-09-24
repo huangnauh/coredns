@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/coredns/coredns/plugin"
@@ -24,6 +25,7 @@ var log = clog.NewWithPlugin("forward")
 // Forward represents a plugin instance that can proxy requests to another (DNS) server. It has a list
 // of proxies each representing one upstream proxy.
 type Forward struct {
+	Index      int
 	proxies    []*Proxy
 	p          Policy
 	hcInterval time.Duration
@@ -58,7 +60,13 @@ func (f *Forward) SetProxy(p *Proxy) {
 func (f *Forward) Len() int { return len(f.proxies) }
 
 // Name implements plugin.Handler.
-func (f *Forward) Name() string { return "forward" }
+func (f *Forward) Name() string {
+	if f.Index == 0 {
+		return "forward"
+	} else {
+		return fmt.Sprintf("forward_%d", f.Index)
+	}
+}
 
 func (f *Forward) retryFailed(state request.Request, proxy *Proxy, msg *dns.Msg) bool {
 	if !state.Match(msg) {
@@ -165,6 +173,8 @@ func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg
 		if try <= f.maxFailedTries && f.retryFailed(state, proxy, ret) {
 			continue
 		}
+
+		log.Debugf("Response name %s, upstream %s try %d", state.QName(), proxy.addr, try)
 
 		// Check if the reply is correct; if not return FormErr.
 		if !state.Match(ret) {
