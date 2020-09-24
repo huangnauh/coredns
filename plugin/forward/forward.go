@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -31,6 +32,7 @@ type Forward struct {
 	p          Policy
 	hcInterval time.Duration
 
+	index   int
 	from    string
 	ignored []string
 
@@ -52,7 +54,11 @@ type Forward struct {
 
 // New returns a new Forward.
 func New() *Forward {
-	f := &Forward{maxfails: 2, tlsConfig: new(tls.Config), expire: defaultExpire, p: new(random), from: ".", hcInterval: hcInterval, opts: options{forceTCP: false, preferUDP: false, hcRecursionDesired: true}}
+	f := &Forward{
+		maxfails: 2, tlsConfig: new(tls.Config), expire: defaultExpire, p: new(random),
+		from: ".", ignored: make([]string, 0), hcInterval: hcInterval,
+		opts: options{forceTCP: false, preferUDP: false, hcRecursionDesired: true},
+	}
 	return f
 }
 
@@ -66,7 +72,13 @@ func (f *Forward) SetProxy(p *Proxy) {
 func (f *Forward) Len() int { return len(f.proxies) }
 
 // Name implements plugin.Handler.
-func (f *Forward) Name() string { return "forward" }
+func (f *Forward) Name() string {
+	if f.index == 0 {
+		return "forward"
+	} else {
+		return fmt.Sprintf("forward_%d", f.index)
+	}
+}
 
 // ServeDNS implements plugin.Handler.
 func (f *Forward) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.Msg) (int, error) {

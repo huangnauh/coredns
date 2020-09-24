@@ -1,9 +1,13 @@
 package forward
 
 import (
+	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/coredns/coredns/core/dnsserver"
@@ -19,27 +23,31 @@ import (
 func init() { plugin.Register("forward", setup) }
 
 func setup(c *caddy.Controller) error {
-	f, err := parseForward(c)
+	fs, err := parseForward(c)
 	if err != nil {
 		return plugin.Error("forward", err)
 	}
-	if f.Len() > max {
-		return plugin.Error("forward", fmt.Errorf("more than %d TOs configured: %d", max, f.Len()))
+	for i := range fs {
+		f := fs[i]
+
+		if f.Len() > max {
+			return plugin.Error("forward", fmt.Errorf("more than %d TOs configured: %d", max, f.Len()))
+		}
+
+		dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
+			f.Next = next
+			return f
+		})
+
+		c.OnStartup(func() error {
+			metrics.MustRegister(c, RequestCount, RcodeCount, RequestDuration, HealthcheckFailureCount, SocketGauge, MaxConcurrentRejectCount)
+			return f.OnStartup()
+		})
+
+		c.OnShutdown(func() error {
+			return f.OnShutdown()
+		})
 	}
-
-	dnsserver.GetConfig(c).AddPlugin(func(next plugin.Handler) plugin.Handler {
-		f.Next = next
-		return f
-	})
-
-	c.OnStartup(func() error {
-		metrics.MustRegister(c, RequestCount, RcodeCount, RequestDuration, HealthcheckFailureCount, SocketGauge, MaxConcurrentRejectCount)
-		return f.OnStartup()
-	})
-
-	c.OnShutdown(func() error {
-		return f.OnShutdown()
-	})
 
 	return nil
 }
@@ -60,23 +68,19 @@ func (f *Forward) OnShutdown() error {
 	return nil
 }
 
-func parseForward(c *caddy.Controller) (*Forward, error) {
-	var (
-		f   *Forward
-		err error
-		i   int
-	)
+func parseForward(c *caddy.Controller) ([]*Forward, error) {
+	fs := make([]*Forward, 0)
+	i := 0
 	for c.Next() {
-		if i > 0 {
-			return nil, plugin.ErrOnce
-		}
-		i++
-		f, err = parseStanza(c)
+		f, err := parseStanza(c)
 		if err != nil {
 			return nil, err
 		}
+		f.index = i
+		fs = append(fs, f)
+		i++
 	}
-	return f, nil
+	return fs, nil
 }
 
 func parseStanza(c *caddy.Controller) (*Forward, error) {
@@ -139,9 +143,41 @@ func parseBlock(c *caddy.Controller, f *Forward) error {
 			return c.ArgErr()
 		}
 		for i := 0; i < len(ignore); i++ {
-			ignore[i] = plugin.Host(ignore[i]).Normalize()
+			f.ignored = append(f.ignored, plugin.Host(ignore[i]).Normalize())
 		}
-		f.ignored = ignore
+	case "except_file":
+		args := c.RemainingArgs()
+		if len(args) != 1 {
+			return c.ArgErr()
+		}
+		file, err := os.Open(args[0])
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if i := bytes.Index(line, []byte{'#'}); i >= 0 {
+				// Discard comments.
+				line = line[0:i]
+			}
+			fields := bytes.Fields(line)
+			if len(fields) != 1 {
+				continue
+			}
+			splits := strings.Split(string(fields[0]), "/")
+			domain := ""
+			if len(splits) == 1 {
+				domain = splits[0]
+			} else if len(splits) == 3 {
+				domain = splits[1]
+			} else {
+				continue
+			}
+			f.ignored = append(f.ignored, plugin.Host(domain).Normalize())
+		}
 	case "max_fails":
 		if !c.NextArg() {
 			return c.ArgErr()
